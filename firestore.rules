@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function logado() { return request.auth != null; }
+    function coordenador() {
+      return logado() && exists(/databases/$(database)/documents/coordenadores/$(request.auth.uid));
+    }
+    function travado() {
+      return exists(/databases/$(database)/documents/config/lock);
+    }
+
+    // Primeiro acesso: o organizador se cadastra uma única vez e trava a configuração.
+    match /config/lock {
+      allow read: if logado();
+      allow write: if coordenador();
+    }
+
+    // Coordenadores: o primeiro se cadastra antes da trava; depois, só coordenador adiciona ou remove.
+    match /coordenadores/{uid} {
+      allow read: if logado();
+      allow create: if logado() && request.auth.uid == uid && !travado();
+      allow write: if coordenador();
+    }
+
+    // Grupos de trabalho: só coordenador cria, edita ou exclui.
+    match /grupos/{id} {
+      allow read: if logado();
+      allow write: if coordenador();
+    }
+
+    // Cada pessoa grava o próprio nome e grupo; coordenador pode corrigir.
+    match /membros/{uid} {
+      allow read: if logado();
+      allow write: if (logado() && request.auth.uid == uid) || coordenador();
+    }
+
+    // Votos da Matriz GUT: cada pessoa grava só o próprio voto.
+    match /votos/{uid} {
+      allow read: if logado();
+      allow write: if logado() && request.auth.uid == uid;
+    }
+
+    // Trabalho dos grupos.
+    match /problemas/{id} { allow read, write: if logado(); }
+    match /causas/{id}    { allow read, write: if logado(); }
+    match /acoes/{id}     { allow read, write: if logado(); }
+  }
+}
